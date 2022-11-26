@@ -5,16 +5,75 @@
 #include <string>
 #include <sstream>
 #include <vector>
+#include <stdio.h>
+
+// Output in P6 format, a binary file containing:
+// P6
+// ncolumns nrows
+// Max colour value
+// colours in binary format thus unreadable
+void save_imageP6(int Width, int Height, char* fname, unsigned char* pixels) {
+    FILE* fp;
+    const int maxVal = 255;
+
+    printf("Saving image %s: %d x %d\n", fname, Width, Height);
+    fp = fopen(fname, "wb");
+    if (!fp) {
+        printf("Unable to open file '%s'\n", fname);
+        return;
+    }
+    fprintf(fp, "P6\n");
+    fprintf(fp, "%d %d\n", Width, Height);
+    fprintf(fp, "%d\n", maxVal);
+
+    for (int j = 0; j < Height; j++) {
+        fwrite(&pixels[j * Width * 3], 3, Width, fp);
+    }
+
+    fclose(fp);
+}
+
+// Output in P3 format, a text file containing:
+// P3
+// ncolumns nrows
+// Max colour value (for us, and usually 255)
+// r1 g1 b1 r2 g2 b2 .....
+void save_imageP3(int Width, int Height, char* fname, unsigned char* pixels) {
+    FILE* fp;
+    const int maxVal = 255;
+
+    printf("Saving image %s: %d x %d\n", fname, Width, Height);
+    fp = fopen(fname, "w");
+    if (!fp) {
+        printf("Unable to open file '%s'\n", fname);
+        return;
+    }
+    fprintf(fp, "P3\n");
+    fprintf(fp, "%d %d\n", Width, Height);
+    fprintf(fp, "%d\n", maxVal);
+
+    int k = 0;
+    for (int j = 0; j < Height; j++) {
+
+        for (int i = 0; i < Width; i++)
+        {
+            fprintf(fp, " %d %d %d", pixels[k], pixels[k + 1], pixels[k + 2]);
+            k = k + 3;
+        }
+        fprintf(fp, "\n");
+    }
+    fclose(fp);
+}
 
 // Sphere class
 class Sphere
 {
 public:
     std::string name;
-    std::vector<float> pos;
-    std::vector<float> scl;
-    std::vector<float> color;
-    float Ka, Kd, Ks, Kr;
+    std::vector<double> pos;
+    std::vector<double> scl;
+    std::vector<double> color;
+    double Ka, Kd, Ks, Kr;
     int spec;
     Sphere() {};
     ~Sphere() {};
@@ -26,12 +85,22 @@ class Light
 {
 public:
     std::string name;
-    std::vector<float> pos;
-    std::vector<float> color;
+    std::vector<double> pos;
+    std::vector<double> color;
     Light() {};
     ~Light() {};
 private:
 };
+
+
+std::vector<double> raytrace(std::vector<double> ray_S, std::vector<double> ray_c, int depth_budget) {
+    // Check recursive depth
+    if (depth_budget == 0) {
+        std::vector<double> c(3,0);
+        return c;
+    }
+
+}
 
 int main(int argc, char* argv[])
 {
@@ -42,12 +111,12 @@ int main(int argc, char* argv[])
     }
 
     // Input file data
-    float near, left, right, top, bottom;
+    double near, left, right, top, bottom;
     int nColumns, nRows;
     std::vector<Sphere> sphereList;
     std::vector<Light> lightList;
-    std::vector<float> bg_color;
-    std::vector<float> ambient_intensity;
+    std::vector<double> bg_color;
+    std::vector<double> ambient_intensity;
     std::string ofilename;
 
     std::cout << "Reading from: " << argv[1] << "\n";
@@ -146,6 +215,26 @@ int main(int argc, char* argv[])
             }
         }
     ifile.close();
+
+    // Init grid
+    unsigned char *pixels;
+    pixels = new unsigned char [3 * nColumns * nRows];
+
+    /*
+    for (auto i : bg_color) std::cout << i << ' ';
+    std::cout << '\n';
+    for (auto i : ambient_intensity) std::cout << i << ' ';
+    std::cout << '\n';
+    std::cout << ofilename << '\n';
+    */
+
+    std::vector<double> ray_S(3, 0);
+    for (int j = 0; j < nRows; j++) {
+        for (int i = 0; i < nColumns; i++) {
+            std::vector<double> ray_c{ (((left + right) * i) / nColumns) - left, (((bottom + top) * j) / nRows) - bottom, -near };
+            std::vector<double> color = raytrace(ray_S, ray_c, 1);
+        }
+    }
 }
 
 // Run program: Ctrl + F5 or Debug > Start Without Debugging menu
