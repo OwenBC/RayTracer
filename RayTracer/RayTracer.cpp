@@ -7,8 +7,8 @@
 #include <sstream>
 #include <vector>
 
-#define FLOATING_POINT_ERROR    0.0001 // Try larger value if this doesn't work
-#define DEPTH                   2
+#define FLOATING_POINT_ERROR    0.000001 // Try larger value if this doesn't work
+#define DEPTH                   1
 
 void save_imageP6(int Width, int Height, const char* fname, unsigned char* pixels);
 void save_imageP3(int Width, int Height, const char* fname, unsigned char* pixels);
@@ -156,11 +156,13 @@ std::vector<double> raytrace(std::vector<double> ray_S, std::vector<double> ray_
     // Collision point
     std::vector<double> p_col(ray_S);
     for (int i = 0; i < 3; i++) p_col[i] += ray_c[i] * t;
+    std::cout << "Hit " << hit_sphere.name << " at\t" << p_col[0] << '\t' << p_col[1] << '\t' << p_col[2] << '\t' << '\n';
 
     // Normal
     std::vector<double> norm(p_col);
     for (int i = 0; i < 3; i++) norm[i] -= hit_sphere.pos[i];
     normalize(norm);
+    // std::cout << "Normal\t\t" << norm[0] << '\t' << norm[1] << '\t' << norm[2] << '\t' << '\n';
 
     // Eye direction vector
     std::vector<double> eye_dir(ray_c);
@@ -173,7 +175,7 @@ std::vector<double> raytrace(std::vector<double> ray_S, std::vector<double> ray_
     // Diffuse/Specular
     std::vector<double> l_dir;
     std::vector<double> l_dir_r;
-    for (Light light : lightList)
+    for (Light light : lightList){
         if (light.visible(p_col)) {
             // light direction vector
             l_dir = light.pos;
@@ -185,10 +187,12 @@ std::vector<double> raytrace(std::vector<double> ray_S, std::vector<double> ray_
             reflect(l_dir_r, norm);
 
             // Apply light
-            double diff_coef = hit_sphere.Kd * dot(norm, l_dir);
+            double n_dot_l = dot(norm, l_dir);
+            double diff_coef = hit_sphere.Kd * (n_dot_l > 0)?n_dot_l:0; // May have to clamp in main
             double spec_coef = hit_sphere.Ks * std::pow(dot(l_dir_r, eye_dir), hit_sphere.spec);
             for (int i = 0; i < 3; i++) color[i] += light.color[i] * (diff_coef * hit_sphere.color[i] + spec_coef);
         }
+    }
 
     // Reflection
     std::vector<double> ref_c(eye_dir);
@@ -321,13 +325,12 @@ int main(int argc, char* argv[])
             std::vector<double> ray_c{ ((width * i) / nColumns) + left, ((height * (nRows - j)) / nRows) + bottom, -near };
             //std::cout << "Row: " << j << " Col: " << i << '\n';
             std::vector<double> color = raytrace(ray_S, ray_c, DEPTH, near);
-            pixels[3 * (i + j * nColumns)] = color[0] * 255;
-            pixels[3 * (i + j * nColumns) + 1] = color[1] * 255;
-            pixels[3 * (i + j * nColumns) + 2] = color[2] * 255;
+            for (int k = 0; k < 3; k++)
+                pixels[3 * (i + j * nColumns) + k] = ((color[k] < 1)?color[k]:1) * 255;
         }
     }
 
     //std::cout << int(pixels[3 * nColumns * nRows - 1]) << '\n';
 
-    save_imageP6(nColumns, nRows, ofilename.c_str(), pixels);
+    save_imageP3(nColumns, nRows, ofilename.c_str(), pixels);
 }
