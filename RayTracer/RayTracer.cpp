@@ -138,7 +138,7 @@ private:
 
 // Raytrace function ----------------------------------
 
-std::vector<double> raytrace(std::vector<double> ray_S, std::vector<double> ray_c, int depth_budget, double min_t) {
+std::vector<double> raytrace(std::vector<double> ray_S, std::vector<double> ray_c, bool background, int depth_budget, double min_t) {
     std::vector<double> color{ 0, 0, 0 };
 
     // Check recursive depth
@@ -151,12 +151,12 @@ std::vector<double> raytrace(std::vector<double> ray_S, std::vector<double> ray_
         sphere.intersect(ray_S, ray_c, min_t, &t, hit_sphere);
 
     // Return background if no collision
-    if (t == -1) return bg_color;
+    if (t == -1) return background?bg_color:color;
 
     // Collision point
     std::vector<double> p_col(ray_S);
     for (int i = 0; i < 3; i++) p_col[i] += ray_c[i] * t;
-    std::cout << "Hit " << hit_sphere.name << " at\t" << p_col[0] << '\t' << p_col[1] << '\t' << p_col[2] << '\t' << '\n';
+    //std::cout << "Hit " << hit_sphere.name << " at\t" << p_col[0] << '\t' << p_col[1] << '\t' << p_col[2] << '\t' << '\n';
 
     // Normal
     std::vector<double> norm(p_col);
@@ -187,8 +187,7 @@ std::vector<double> raytrace(std::vector<double> ray_S, std::vector<double> ray_
             reflect(l_dir_r, norm);
 
             // Apply light
-            double n_dot_l = dot(norm, l_dir);
-            double diff_coef = hit_sphere.Kd * (n_dot_l > 0)?n_dot_l:0; // May have to clamp in main
+            double diff_coef = hit_sphere.Kd * dot(norm, l_dir);
             double spec_coef = hit_sphere.Ks * std::pow(dot(l_dir_r, eye_dir), hit_sphere.spec);
             for (int i = 0; i < 3; i++) color[i] += light.color[i] * (diff_coef * hit_sphere.color[i] + spec_coef);
         }
@@ -197,8 +196,8 @@ std::vector<double> raytrace(std::vector<double> ray_S, std::vector<double> ray_
     // Reflection
     std::vector<double> ref_c(eye_dir);
     reflect(ref_c, norm);
-    std::vector<double> ref_color = raytrace(p_col, ref_c, depth_budget - 1, FLOATING_POINT_ERROR); 
-
+    std::vector<double> ref_color = raytrace(p_col, ref_c, false, depth_budget - 1, FLOATING_POINT_ERROR); 
+    for (int i = 0; i < 3; i++) color[i] += ref_color[i];
     //std::cout << color[0] << ' ' << color[1] << ' ' << color[2] << '\n';
     return color;
 }
@@ -324,9 +323,9 @@ int main(int argc, char* argv[])
         for (int i = 0; i < nColumns; i++) {
             std::vector<double> ray_c{ ((width * i) / nColumns) + left, ((height * (nRows - j)) / nRows) + bottom, -near };
             //std::cout << "Row: " << j << " Col: " << i << '\n';
-            std::vector<double> color = raytrace(ray_S, ray_c, DEPTH, near);
+            std::vector<double> color = raytrace(ray_S, ray_c, true, DEPTH, near);
             for (int k = 0; k < 3; k++)
-                pixels[3 * (i + j * nColumns) + k] = ((color[k] < 1)?color[k]:1) * 255;
+                pixels[3 * (i + j * nColumns) + k] = ((color[k] < 1)?((color[k] < 0)?0:color[k]):1) * 255;
         }
     }
 
