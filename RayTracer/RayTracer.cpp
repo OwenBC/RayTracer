@@ -5,10 +5,11 @@
 #include <fstream>
 #include <string>
 #include <sstream>
+#include <algorithm>
 #include <vector>
 
 #define FLOATING_POINT_ERROR    0.000001 // Try larger value if this doesn't work
-#define DEPTH                   1
+#define DEPTH                   2
 
 void save_imageP6(int Width, int Height, const char* fname, unsigned char* pixels);
 void save_imageP3(int Width, int Height, const char* fname, unsigned char* pixels);
@@ -49,7 +50,12 @@ void normalize(std::vector<double>& v) {
 // Reflect
 void reflect(std::vector<double>& v, std::vector<double> n) {
     double coef = 2 * dot(n, v);
-    for (int i = 0; i < 3; i++) v[i] += coef * n[i];
+    for (int i = 0; i < 3; i++) v[i] -= coef * n[i];
+}
+
+// Invert vector
+void invert(std::vector<double>& v) {
+    for (int i = 0; i < 3; i++) v[i] *= -1;
 }
 
 // Geometry Classes ----------------------------------
@@ -107,10 +113,12 @@ public:
             // Calculate t at intersections and update output if min t on ray
             double t1 = -(S_dot_c + std::sqrt(discriminant)) / square_c_mag; 
             double t2 = -(S_dot_c - std::sqrt(discriminant)) / square_c_mag;
-            if (t1 > min_t)
+            if (t1 > min_t) {
                 if (t1 < *t || *t == -1) { *t = t1; out = *this; }
-            else if (t2 > min_t)
+            }
+            else if (t2 > min_t) {
                 if (t2 < *t || *t == -1) { *t = t2; out = *this; }
+            }
         }
     }
 };
@@ -130,7 +138,7 @@ public:
         for (int i = 0; i < 3; i++) c[i] -= p[i];
         normalize(c);
         for (Sphere sphere : sphereList)
-            if (sphere.intersect(p, c, FLOATING_POINT_ERROR)) return false;
+            if (sphere.intersect(p, c, 0)) return false;
         return true;
     }
 private:
@@ -156,18 +164,20 @@ std::vector<double> raytrace(std::vector<double> ray_S, std::vector<double> ray_
     // Collision point
     std::vector<double> p_col(ray_S);
     for (int i = 0; i < 3; i++) p_col[i] += ray_c[i] * t;
-    //std::cout << "Hit " << hit_sphere.name << " at\t" << p_col[0] << '\t' << p_col[1] << '\t' << p_col[2] << '\t' << '\n';
 
     // Normal
     std::vector<double> norm(p_col);
-    for (int i = 0; i < 3; i++) norm[i] -= hit_sphere.pos[i];
+    for (int i = 0; i < 3; i++) norm[i] = (norm[i] - hit_sphere.pos[i]) / std::pow(hit_sphere.scl[i],2);
     normalize(norm);
-    // std::cout << "Normal\t\t" << norm[0] << '\t' << norm[1] << '\t' << norm[2] << '\t' << '\n';
 
     // Eye direction vector
     std::vector<double> eye_dir(ray_c);
-    for (int i = 0; i < 3; i++) eye_dir[i] = -eye_dir[i];
+    invert(eye_dir);
     normalize(eye_dir);
+
+    // Adjusted collision point
+    std::vector<double> p_col_adj(p_col);
+    for (int i = 0; i < 3; i++) p_col_adj[i] += eye_dir[i] * FLOATING_POINT_ERROR;
 
     // Ambient
     for (int i = 0; i < 3; i++) color[i] += hit_sphere.Ka * ambient_intensity[i] * hit_sphere.color[i];
@@ -176,7 +186,7 @@ std::vector<double> raytrace(std::vector<double> ray_S, std::vector<double> ray_
     std::vector<double> l_dir;
     std::vector<double> l_dir_r;
     for (Light light : lightList){
-        if (light.visible(p_col)) {
+        if (light.visible(p_col_adj)) {
             // light direction vector
             l_dir = light.pos;
             for (int i = 0; i < 3; i++) l_dir[i] -= p_col[i];
@@ -188,6 +198,11 @@ std::vector<double> raytrace(std::vector<double> ray_S, std::vector<double> ray_
 
             // Apply light
             double diff_coef = hit_sphere.Kd * dot(norm, l_dir);
+            if (diff_coef < 0) {
+                std::vector<double> inv_norm(norm);
+                invert(inv_norm);
+                diff_coef = hit_sphere.Kd * dot(inv_norm, l_dir);
+            }
             double spec_coef = hit_sphere.Ks * std::pow(dot(l_dir_r, eye_dir), hit_sphere.spec);
             for (int i = 0; i < 3; i++) color[i] += light.color[i] * (diff_coef * hit_sphere.color[i] + spec_coef);
         }
@@ -196,17 +211,24 @@ std::vector<double> raytrace(std::vector<double> ray_S, std::vector<double> ray_
     // Reflection
     std::vector<double> ref_c(eye_dir);
     reflect(ref_c, norm);
-    std::vector<double> ref_color = raytrace(p_col, ref_c, false, depth_budget - 1, FLOATING_POINT_ERROR); 
-    for (int i = 0; i < 3; i++) color[i] += ref_color[i];
-    //std::cout << color[0] << ' ' << color[1] << ' ' << color[2] << '\n';
+    invert(ref_c);
+    std::vector<double> ref_color = raytrace(p_col_adj, ref_c, false, depth_budget - 1, 0);
+    for (int i = 0; i < 3; i++) color[i] += hit_sphere.Kr * ref_color[i];
     return color;
+}
+
+void next_token(std::string& t, std::stringstream& ss) {
+    std::getline(ss, t, ' ');
+    while (t.compare("") == 0) {
+        std::getline(ss, t, ' ');
+    }
 }
 
 int main(int argc, char* argv[])
 {
     // Parameter checking
     if (argc != 2) {
-        std::cout << "Invalid parameters. Usage: RayTracer.exe <config-file-name>\n";
+        std::cout << "Invalid number of parameters. Usage: RayTracer.exe <config-file-name>\n";
         return 1;
     }
 
@@ -217,92 +239,92 @@ int main(int argc, char* argv[])
     std::string token;
     if (ifile.is_open())
         while (std::getline(ifile, ifile_line)) {
+            std::replace(begin(ifile_line), end(ifile_line), '\t', ' ');
             std::stringstream ss(ifile_line);
-            if (std::getline(ss, token, ' ')) {
-                if (token.compare("NEAR") == 0) {
-                    std::getline(ss, token, ' ');
-                    near = std::stof(token);
+            std::getline(ss, token, ' ');
+            if (token.compare("NEAR") == 0) {
+                next_token(token, ss);
+                near = std::stof(token);
+            }
+            else if (token.compare("LEFT") == 0) {
+                next_token(token, ss);
+                left = std::stof(token);
+            }
+            else if (token.compare("RIGHT") == 0) {
+                next_token(token, ss);
+                right = std::stof(token);
+            }
+            else if (token.compare("BOTTOM") == 0) {
+                next_token(token, ss);
+                bottom = std::stof(token);
+            }
+            else if (token.compare("TOP") == 0) {
+                next_token(token, ss);
+                top = std::stof(token);
+            }
+            else if (token.compare("RES") == 0) {
+                next_token(token, ss);
+                nColumns= std::stoi(token);
+                next_token(token, ss);
+                nRows = std::stoi(token);
+            }
+            else if (token.compare("SPHERE") == 0) {
+                Sphere sphere;
+                next_token(token, ss);
+                sphere.name = token;
+                for (int i = 0; i < 3; i++) {
+                    next_token(token, ss);
+                    sphere.pos.push_back(std::stof(token));
                 }
-                else if (token.compare("LEFT") == 0) {
-                    std::getline(ss, token, ' ');
-                    left = std::stof(token);
+                for (int i = 0; i < 3; i++) {
+                    next_token(token, ss);
+                    sphere.scl.push_back(std::stof(token));
                 }
-                else if (token.compare("RIGHT") == 0) {
-                    std::getline(ss, token, ' ');
-                    right = std::stof(token);
+                for (int i = 0; i < 3; i++) {
+                    next_token(token, ss);
+                    sphere.color.push_back(std::stof(token));
                 }
-                else if (token.compare("BOTTOM") == 0) {
-                    std::getline(ss, token, ' ');
-                    bottom = std::stof(token);
+                next_token(token, ss);
+                sphere.Ka = std::stof(token);
+                next_token(token, ss);
+                sphere.Kd = std::stof(token);
+                next_token(token, ss);
+                sphere.Ks = std::stof(token);
+                next_token(token, ss);
+                sphere.Kr = std::stof(token);
+                next_token(token, ss);
+                sphere.spec = std::stoi(token);
+                sphereList.push_back(sphere);
+            }
+            else if (token.compare("LIGHT") == 0) {
+                Light light;
+                next_token(token, ss);
+                light.name = token;
+                for (int i = 0; i < 3; i++) {
+                    next_token(token, ss);
+                    light.pos.push_back(std::stof(token));
                 }
-                else if (token.compare("TOP") == 0) {
-                    std::getline(ss, token, ' ');
-                    top = std::stof(token);
+                for (int i = 0; i < 3; i++) {
+                    next_token(token, ss);
+                    light.color.push_back(std::stof(token));
                 }
-                else if (token.compare("RES") == 0) {
-                    std::getline(ss, token, ' ');
-                    nColumns= std::stoi(token);
-                    std::getline(ss, token, ' ');
-                    nRows = std::stoi(token);
+                lightList.push_back(light);
+            }
+            else if (token.compare("BACK") == 0) {
+                for (int i = 0; i < 3; i++) {
+                    next_token(token, ss);
+                    bg_color.push_back(std::stof(token));
                 }
-                else if (token.compare("SPHERE") == 0) {
-                    Sphere sphere;
-                    std::getline(ss, token, ' ');
-                    sphere.name = token;
-                    for (int i = 0; i < 3; i++) {
-                        std::getline(ss, token, ' ');
-                        sphere.pos.push_back(std::stof(token));
-                    }
-                    for (int i = 0; i < 3; i++) {
-                        std::getline(ss, token, ' ');
-                        sphere.scl.push_back(std::stof(token));
-                    }
-                    for (int i = 0; i < 3; i++) {
-                        std::getline(ss, token, ' ');
-                        sphere.color.push_back(std::stof(token));
-                    }
-                    std::getline(ss, token, ' ');
-                    sphere.Ka = std::stof(token);
-                    std::getline(ss, token, ' ');
-                    sphere.Kd = std::stof(token);
-                    std::getline(ss, token, ' ');
-                    sphere.Ks = std::stof(token);
-                    std::getline(ss, token, ' ');
-                    sphere.Kr = std::stof(token);
-                    std::getline(ss, token, ' ');
-                    sphere.spec = std::stoi(token);
-                    sphereList.push_back(sphere);
+            }
+            else if (token.compare("AMBIENT") == 0) {
+                for (int i = 0; i < 3; i++) {
+                    next_token(token, ss);
+                    ambient_intensity.push_back(std::stof(token));
                 }
-                else if (token.compare("LIGHT") == 0) {
-                    Light light;
-                    std::getline(ss, token, ' ');
-                    light.name = token;
-                    for (int i = 0; i < 3; i++) {
-                        std::getline(ss, token, ' ');
-                        light.pos.push_back(std::stof(token));
-                    }
-                    for (int i = 0; i < 3; i++) {
-                        std::getline(ss, token, ' ');
-                        light.color.push_back(std::stof(token));
-                    }
-                    lightList.push_back(light);
-                }
-                else if (token.compare("BACK") == 0) {
-                    for (int i = 0; i < 3; i++) {
-                        std::getline(ss, token, ' ');
-                        bg_color.push_back(std::stof(token));
-                    }
-                }
-                else if (token.compare("AMBIENT") == 0) {
-                    for (int i = 0; i < 3; i++) {
-                        std::getline(ss, token, ' ');
-                        ambient_intensity.push_back(std::stof(token));
-                    }
-                }
-                else if (token.compare("OUTPUT") == 0) {
-                    std::getline(ss, token, ' ');
-                    ofilename = token;
-                }
+            }
+            else if (token.compare("OUTPUT") == 0) {
+                next_token(token, ss);
+                ofilename = token;
             }
         }
     ifile.close();
@@ -311,25 +333,17 @@ int main(int argc, char* argv[])
     unsigned char *pixels;
     pixels = new unsigned char[3 * nColumns * nRows];
 
-    /*
-    for (auto i : sphereList) std::cout << i.name << ' ';
-    std::cout << '\n';
-    */
-
     std::vector<double> ray_S(3, 0);
     double width = std::fabs(left - right);
     double height = std::fabs(bottom - top);
     for (int j = 0; j < nRows; j++) {
         for (int i = 0; i < nColumns; i++) {
             std::vector<double> ray_c{ ((width * i) / nColumns) + left, ((height * (nRows - j)) / nRows) + bottom, -near };
-            //std::cout << "Row: " << j << " Col: " << i << '\n';
             std::vector<double> color = raytrace(ray_S, ray_c, true, DEPTH, near);
             for (int k = 0; k < 3; k++)
-                pixels[3 * (i + j * nColumns) + k] = ((color[k] < 1)?((color[k] < 0)?0:color[k]):1) * 255;
+                pixels[3 * (i + j * nColumns) + k] = ((color[k] < 1)?color[k]:1) * 255;
         }
     }
 
-    //std::cout << int(pixels[3 * nColumns * nRows - 1]) << '\n';
-
-    save_imageP3(nColumns, nRows, ofilename.c_str(), pixels);
+    save_imageP6(nColumns, nRows, ofilename.c_str(), pixels);
 }
