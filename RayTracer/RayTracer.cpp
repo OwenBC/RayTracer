@@ -9,7 +9,7 @@
 #include <vector>
 
 #define FLOATING_POINT_ERROR    0.000001 // Try larger value if this doesn't work
-#define DEPTH                   2
+#define DEPTH                   3
 
 void save_imageP6(int Width, int Height, const char* fname, unsigned char* pixels);
 void save_imageP3(int Width, int Height, const char* fname, unsigned char* pixels);
@@ -81,7 +81,7 @@ private:
 public:
     Sphere() {};
     ~Sphere() {};
-    bool intersect(std::vector<double> ray_S, std::vector<double> ray_c, double min_t) {
+    bool intersect(std::vector<double> ray_S, std::vector<double> ray_c, double min_t, double max_t) {
         // Inverse transform ray
         std::vector<double> inv_ray_S(ray_S);
         std::vector<double> inv_ray_c(ray_c);
@@ -95,7 +95,7 @@ public:
             // Calculate t at intersections and update output if min t on ray
             double t1 = -(S_dot_c + std::sqrt(discriminant)) / square_c_mag;
             double t2 = -(S_dot_c - std::sqrt(discriminant)) / square_c_mag;
-            return t1 > min_t || t2 > min_t;
+            return (t1 > min_t && t1 < max_t) || (t2 > min_t && t2 < max_t);
         }
         return false;
     }
@@ -136,9 +136,10 @@ public:
     bool visible(std::vector<double> p) {
         std::vector<double> c(pos);
         for (int i = 0; i < 3; i++) c[i] -= p[i];
+        double max_t = mag(c);
         normalize(c);
         for (Sphere sphere : sphereList)
-            if (sphere.intersect(p, c, 0)) return false;
+            if (sphere.intersect(p, c, 0, max_t)) return false;
         return true;
     }
 private:
